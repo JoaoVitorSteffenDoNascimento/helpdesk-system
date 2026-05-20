@@ -1,0 +1,96 @@
+name: helpdesk-system
+services:
+  - name: mongodb
+    github:
+      repo: JoaoVitorSteffenDoNascimento/helpdesk-system
+      branch: master
+      deploy_on_push: true
+    build_command: echo "MongoDB container"
+    dockerfile_path: Dockerfile
+    source_dir: ""
+    envs:
+      - key: MONGO_INITDB_DATABASE
+        value: helpdesk
+    http_port: 27017
+    internal_ports:
+      - 27017
+
+  - name: ticket-service
+    github:
+      repo: JoaoVitorSteffenDoNascimento/helpdesk-system
+      branch: master
+      deploy_on_push: true
+    build_command: docker build -t ticket-service ./ticket-service
+    dockerfile_path: ./ticket-service/Dockerfile
+    source_dir: ticket-service
+    envs:
+      - key: SPRING_DATA_MONGODB_URI
+        value: mongodb://mongodb:27017/helpdesk_tickets
+      - key: SERVER_PORT
+        value: "8081"
+      - key: JAVA_OPTS
+        value: "-Xmx256m -Xms128m"
+    http_port: 8081
+    internal_ports:
+      - 8081
+
+  - name: user-service
+    github:
+      repo: JoaoVitorSteffenDoNascimento/helpdesk-system
+      branch: master
+      deploy_on_push: true
+    build_command: docker build -t user-service ./user-service
+    dockerfile_path: ./user-service/Dockerfile
+    source_dir: user-service
+    envs:
+      - key: SPRING_DATA_MONGODB_URI
+        value: mongodb://mongodb:27017/helpdesk_users
+      - key: SERVER_PORT
+        value: "8082"
+      - key: JAVA_OPTS
+        value: "-Xmx256m -Xms128m"
+    http_port: 8082
+    internal_ports:
+      - 8082
+
+  - name: api-gateway
+    github:
+      repo: JoaoVitorSteffenDoNascimento/helpdesk-system
+      branch: master
+      deploy_on_push: true
+    build_command: docker build -t api-gateway ./api-gateway
+    dockerfile_path: ./api-gateway/Dockerfile
+    source_dir: api-gateway
+    envs:
+      - key: TICKET_SERVICE_URL
+        value: http://ticket-service:8081
+      - key: USER_SERVICE_URL
+        value: http://user-service:8082
+      - key: SERVER_PORT
+        value: "8080"
+      - key: JAVA_OPTS
+        value: "-Xmx256m -Xms128m"
+    http_port: 8080
+    internal_ports:
+      - 8080
+
+  - name: frontend
+    github:
+      repo: JoaoVitorSteffenDoNascimento/helpdesk-system
+      branch: master
+      deploy_on_push: true
+    build_command: docker build -t frontend --build-arg VITE_API_BASE_URL=https://seu-dominio.com ./frontend
+    dockerfile_path: ./frontend/Dockerfile
+    source_dir: frontend
+    envs:
+      - key: VITE_API_BASE_URL
+        value: https://seu-dominio.com
+    http_port: 80
+    internal_ports:
+      - 80
+
+static_sites:
+  - name: docs
+    source_dir: docs
+    routes:
+      - path: /docs
