@@ -1,0 +1,15 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: ticket-service
+  data:
+    mongodb:
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://localhost:27017/helpdesk_tickets}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
