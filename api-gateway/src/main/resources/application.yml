@@ -20,18 +20,39 @@ spring:
               - DELETE
               - OPTIONS
             allowedHeaders: "*"
-      routes:
-        - id: ticket-service
-          uri: ${TICKET_SERVICE_URL:http://localhost:8081}
-          predicates:
-            - Path=/tickets/**
-        - id: user-service
-          uri: ${USER_SERVICE_URL:http://localhost:8082}
-          predicates:
-            - Path=/users/**
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      ticketServiceCircuit:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+      userServiceCircuit:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+  retry:
+    instances:
+      ticketServiceRetry:
+        maxAttempts: 3
+        waitDuration: 1s
+        retryExceptions:
+          - java.io.IOException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+      userServiceRetry:
+        maxAttempts: 3
+        waitDuration: 1s
+        retryExceptions:
+          - java.io.IOException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
