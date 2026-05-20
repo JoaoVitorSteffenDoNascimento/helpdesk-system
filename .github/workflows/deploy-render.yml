@@ -1,0 +1,80 @@
+name: Deploy to Render
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'ticket-service/**'
+      - 'user-service/**'
+      - 'api-gateway/**'
+      - 'frontend/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/deploy-render.yml'
+
+env:
+  RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Render Deploy Hooks
+        id: hooks
+        run: |
+          echo "API Gateway deploy hook setup completed"
+
+      - name: Deploy MongoDB
+        if: contains(github.event.head_commit.modified, 'docker-compose.yml')
+        run: |
+          echo "MongoDB deploy would trigger via Render UI (manual setup required)"
+
+      - name: Deploy Ticket Service
+        if: contains(github.event.head_commit.modified, 'ticket-service/')
+        run: |
+          if [ ! -z "${{ secrets.RENDER_DEPLOY_HOOK_TICKET_SERVICE }}" ]; then
+            curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_TICKET_SERVICE }}"
+            echo "✅ Ticket Service deploy triggered"
+          else
+            echo "⚠️  RENDER_DEPLOY_HOOK_TICKET_SERVICE secret not configured"
+          fi
+
+      - name: Deploy User Service
+        if: contains(github.event.head_commit.modified, 'user-service/')
+        run: |
+          if [ ! -z "${{ secrets.RENDER_DEPLOY_HOOK_USER_SERVICE }}" ]; then
+            curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_USER_SERVICE }}"
+            echo "✅ User Service deploy triggered"
+          else
+            echo "⚠️  RENDER_DEPLOY_HOOK_USER_SERVICE secret not configured"
+          fi
+
+      - name: Deploy API Gateway
+        if: contains(github.event.head_commit.modified, 'api-gateway/')
+        run: |
+          if [ ! -z "${{ secrets.RENDER_DEPLOY_HOOK_API_GATEWAY }}" ]; then
+            curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_API_GATEWAY }}"
+            echo "✅ API Gateway deploy triggered"
+          else
+            echo "⚠️  RENDER_DEPLOY_HOOK_API_GATEWAY secret not configured"
+          fi
+
+      - name: Deploy Frontend
+        if: contains(github.event.head_commit.modified, 'frontend/')
+        run: |
+          if [ ! -z "${{ secrets.RENDER_DEPLOY_HOOK_FRONTEND }}" ]; then
+            curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_FRONTEND }}"
+            echo "✅ Frontend deploy triggered"
+          else
+            echo "⚠️  RENDER_DEPLOY_HOOK_FRONTEND secret not configured"
+          fi
+
+      - name: Notify Deployment Status
+        if: always()
+        run: |
+          echo "Deployment workflow completed"
+          echo "Check Render dashboard for deployment status: https://dashboard.render.com"

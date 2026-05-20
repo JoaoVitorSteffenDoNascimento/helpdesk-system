@@ -1,0 +1,113 @@
+services:
+  - type: web
+    name: helpdesk-mongodb
+    env: docker
+    region: oregon
+    plan: starter
+    docker:
+      image: mongo:7
+    envVars:
+      - key: MONGO_INITDB_DATABASE
+        value: helpdesk
+    disk:
+      name: mongodb_data
+      mountPath: /data/db
+      sizeGB: 10
+    healthCheck:
+      path: /
+      protocol: tcp
+      port: 27017
+
+  - type: web
+    name: helpdesk-ticket-service
+    env: docker
+    region: oregon
+    plan: starter
+    docker:
+      repo: https://github.com/JoaoVitorSteffenDoNascimento/helpdesk-system
+      branch: master
+      buildCommand: docker build -t helpdesk-ticket-service ./ticket-service
+    envVars:
+      - key: SPRING_DATA_MONGODB_URI
+        value: mongodb://helpdesk-mongodb:27017/helpdesk_tickets
+      - key: SERVER_PORT
+        value: 8081
+      - key: JAVA_OPTS
+        value: "-Xmx512m -Xms256m"
+    healthCheck:
+      path: /actuator/health
+      protocol: http
+      port: 8081
+    expose:
+      - port: 8081
+        protocol: http
+
+  - type: web
+    name: helpdesk-user-service
+    env: docker
+    region: oregon
+    plan: starter
+    docker:
+      repo: https://github.com/JoaoVitorSteffenDoNascimento/helpdesk-system
+      branch: master
+      buildCommand: docker build -t helpdesk-user-service ./user-service
+    envVars:
+      - key: SPRING_DATA_MONGODB_URI
+        value: mongodb://helpdesk-mongodb:27017/helpdesk_users
+      - key: SERVER_PORT
+        value: 8082
+      - key: JAVA_OPTS
+        value: "-Xmx512m -Xms256m"
+    healthCheck:
+      path: /actuator/health
+      protocol: http
+      port: 8082
+    expose:
+      - port: 8082
+        protocol: http
+
+  - type: web
+    name: helpdesk-api-gateway
+    env: docker
+    region: oregon
+    plan: starter
+    docker:
+      repo: https://github.com/JoaoVitorSteffenDoNascimento/helpdesk-system
+      branch: master
+      buildCommand: docker build -t helpdesk-api-gateway ./api-gateway
+    envVars:
+      - key: TICKET_SERVICE_URL
+        value: http://helpdesk-ticket-service:8081
+      - key: USER_SERVICE_URL
+        value: http://helpdesk-user-service:8082
+      - key: SERVER_PORT
+        value: 8080
+      - key: JAVA_OPTS
+        value: "-Xmx512m -Xms256m"
+    healthCheck:
+      path: /actuator/health
+      protocol: http
+      port: 8080
+    expose:
+      - port: 8080
+        protocol: http
+
+  - type: web
+    name: helpdesk-frontend
+    env: docker
+    region: oregon
+    plan: starter
+    docker:
+      repo: https://github.com/JoaoVitorSteffenDoNascimento/helpdesk-system
+      branch: master
+      buildCommand: docker build -t helpdesk-frontend --build-arg VITE_API_BASE_URL=https://helpdesk-api-gateway.onrender.com ./frontend
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://helpdesk-api-gateway.onrender.com
+    healthCheck:
+      path: /
+      protocol: http
+      port: 80
+    expose:
+      - port: 80
+        protocol: http
