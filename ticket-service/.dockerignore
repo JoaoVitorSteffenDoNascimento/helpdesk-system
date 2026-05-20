@@ -1,3 +1,10 @@
 target/
 .mvn/
 *.log
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+README.md
+.env.local

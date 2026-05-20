@@ -1,10 +1,12 @@
 services:
   mongodb:
-    image: mongo:7
+    image: mongo:${MONGODB_VERSION}
     container_name: helpdesk-mongodb
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "${MONGODB_PORT}:27017"
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE}
     volumes:
       - mongodb_data:/data/db
     healthcheck:
@@ -12,58 +14,116 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    mem_limit: 512m
+    cpus: '0.5'
+    networks:
+      - helpdesk-network
 
   ticket-service:
     build:
       context: ./ticket-service
+      dockerfile: Dockerfile
     container_name: helpdesk-ticket-service
     restart: unless-stopped
     environment:
-      SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/helpdesk_tickets
+      SPRING_DATA_MONGODB_URI: mongodb://mongodb:${MONGODB_PORT}/${MONGODB_DATABASE}_tickets
+      SERVER_PORT: ${TICKET_SERVICE_PORT}
+      JAVA_OPTS: ${JAVA_OPTS}
     ports:
-      - "8081:8081"
+      - "${TICKET_SERVICE_PORT}:${TICKET_SERVICE_PORT}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${TICKET_SERVICE_PORT}/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: '0.5'
     depends_on:
       mongodb:
         condition: service_healthy
+    networks:
+      - helpdesk-network
 
   user-service:
     build:
       context: ./user-service
+      dockerfile: Dockerfile
     container_name: helpdesk-user-service
     restart: unless-stopped
     environment:
-      SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/helpdesk_users
+      SPRING_DATA_MONGODB_URI: mongodb://mongodb:${MONGODB_PORT}/${MONGODB_DATABASE}_users
+      SERVER_PORT: ${USER_SERVICE_PORT}
+      JAVA_OPTS: ${JAVA_OPTS}
     ports:
-      - "8082:8082"
+      - "${USER_SERVICE_PORT}:${USER_SERVICE_PORT}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${USER_SERVICE_PORT}/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: '0.5'
     depends_on:
       mongodb:
         condition: service_healthy
+    networks:
+      - helpdesk-network
 
   api-gateway:
     build:
       context: ./api-gateway
+      dockerfile: Dockerfile
     container_name: helpdesk-api-gateway
     restart: unless-stopped
     environment:
-      TICKET_SERVICE_URL: http://ticket-service:8081
-      USER_SERVICE_URL: http://user-service:8082
+      TICKET_SERVICE_URL: ${TICKET_SERVICE_URL}
+      USER_SERVICE_URL: ${USER_SERVICE_URL}
+      SERVER_PORT: ${API_GATEWAY_PORT}
+      JAVA_OPTS: ${JAVA_OPTS}
     ports:
-      - "8080:8080"
+      - "${API_GATEWAY_PORT}:${API_GATEWAY_PORT}"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${API_GATEWAY_PORT}/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: '0.5'
     depends_on:
       - ticket-service
       - user-service
+    networks:
+      - helpdesk-network
 
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: http://localhost:8080
+        VITE_API_BASE_URL: ${FRONTEND_API_URL}
     container_name: helpdesk-frontend
     restart: unless-stopped
     ports:
-      - "5173:5173"
-    depends_on:
-      - api-gateway
+      - "${FRONTEND_PORT}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 256m
+    cpus: '0.25'
+    networks:
+      - helpdesk-network
+
+networks:
+  helpdesk-network:
+    driver: bridge
 
 volumes:
   mongodb_data:
+    driver: local
