@@ -1,21 +1,25 @@
 package com.helpdesk.gateway.service;
 
 import com.helpdesk.gateway.dto.ErrorResponse;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.github.resilience4j.retry.annotation.Retry;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.reactor.circuitbreaker.operator.CircuitBreakerOperator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
+import java.time.Duration;
 
 @Service
 public class ResilientProxyService {
 
     private final WebClient webClient;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Value("${TICKET_SERVICE_URL:http://localhost:8081}")
     private String ticketServiceUrl;
@@ -23,12 +27,12 @@ public class ResilientProxyService {
     @Value("${USER_SERVICE_URL:http://localhost:8082}")
     private String userServiceUrl;
 
-    public ResilientProxyService(WebClient webClient) {
+    public ResilientProxyService(WebClient webClient, 
+                                 CircuitBreakerRegistry circuitBreakerRegistry) {
         this.webClient = webClient;
+        this.circuitBreakerRegistry = circuitBreakerRegistry;
     }
 
-    @CircuitBreaker(name = "ticketServiceCircuit", fallbackMethod = "ticketFallback")
-    @Retry(name = "ticketServiceRetry")
     public Mono<ResponseEntity<Object>> proxyTicketRequest(HttpMethod method,
                                                            String path,
                                                            HttpHeaders headers,
@@ -36,8 +40,6 @@ public class ResilientProxyService {
         return proxyRequest(ticketServiceUrl, method, path, headers, body, "ticket-service");
     }
 
-    @CircuitBreaker(name = "userServiceCircuit", fallbackMethod = "userFallback")
-    @Retry(name = "userServiceRetry")
     public Mono<ResponseEntity<Object>> proxyUserRequest(HttpMethod method,
                                                           String path,
                                                           HttpHeaders headers,
@@ -53,21 +55,60 @@ public class ResilientProxyService {
                                                        String serviceName) {
         String url = buildServiceUrl(serviceUrl, path);
 
-        WebClient.RequestHeadersSpec<?> request = webClient.method(method)
+        Mono<ResponseEntity<Object>> responseMono = (requiresBody(method) ? body.defaultIfEmpty("") : Mono.just(""))
+                .flatMap(payload -> executeRequest(method, url, headers, payload));
+
+        CircuitBreaker circuitBreaker = getOrCreateCircuitBreaker(serviceName);
+
+        return responseMono
+                .retry(2)
+                .delayElement(Duration.ofMillis(500))
+                .transformDeferred(CircuitBreakerOperator.of(circuitBreaker))
+                .onErrorMap(ex -> new Exception("Service error: " + serviceName, ex))
+                .onErrorResume(ex -> handleError(ex, serviceName));
+    }
+
+    private CircuitBreaker getOrCreateCircuitBreaker(String serviceName) {
+        String cbName = serviceName.equals("ticket-service") ? "ticketServiceCircuit" : "userServiceCircuit";
+        try {
+            return circuitBreakerRegistry.circuitBreaker(cbName);
+        } catch (Exception e) {
+            return CircuitBreaker.ofDefaults(cbName);
+        }
+    }
+
+    private Mono<ResponseEntity<Object>> executeRequest(@NonNull HttpMethod method, String url, HttpHeaders headers, String payload) {
+        var requestSpec = webClient.method(method)
                 .uri(url)
-                .headers(httpHeaders -> httpHeaders.addAll(headers));
+                .headers(httpHeaders -> {
+                    if (headers != null && !headers.isEmpty()) {
+                        httpHeaders.addAll(headers);
+                    }
+                });
 
-        Mono<ResponseEntity<Object>> responseMono = requiresBody(method)
-                ? body.defaultIfEmpty("").flatMap(payload -> request.bodyValue(payload).retrieve().toEntity(String.class))
-                : request.retrieve().toEntity(String.class);
+        if (requiresBody(method) && !payload.isEmpty()) {
+            return requestSpec.bodyValue(payload)
+                    .exchangeToMono(response -> response.toEntity(Object.class))
+                    .map(entity -> ResponseEntity.status(entity.getStatusCode())
+                            .headers(entity.getHeaders())
+                            .body(entity.getBody()));
+        } else {
+            return requestSpec.retrieve()
+                    .toEntity(Object.class)
+                    .map(entity -> ResponseEntity.status(entity.getStatusCode())
+                            .headers(entity.getHeaders())
+                            .body(entity.getBody()));
+        }
+    }
 
-        return responseMono.map(responseEntity -> ResponseEntity
-                        .status(responseEntity.getStatusCode())
-                        .headers(responseEntity.getHeaders())
-                        .body(responseEntity.getBody()))
-                .onErrorResume(WebClientResponseException.class, ex -> Mono.just(ResponseEntity
-                        .status(ex.getStatusCode())
-                        .body(new ErrorResponse(serviceName + "-error", ex.getResponseBodyAsString()))));
+    private Mono<ResponseEntity<Object>> handleError(Throwable ex, String serviceName) {
+        if (ex instanceof WebClientResponseException webClientEx) {
+            ErrorResponse errorResponse = new ErrorResponse(serviceName + "-error", webClientEx.getResponseBodyAsString());
+            return Mono.just(ResponseEntity.status(webClientEx.getStatusCode()).body(errorResponse));
+        }
+        ErrorResponse errorResponse = new ErrorResponse(serviceName + "-unavailable",
+                "O serviço está temporariamente indisponível. Tente novamente mais tarde.");
+        return Mono.just(ResponseEntity.status(503).body(errorResponse));
     }
 
     private String buildServiceUrl(String baseUrl, String path) {
@@ -84,25 +125,5 @@ public class ResilientProxyService {
         return HttpMethod.POST.equals(method)
                 || HttpMethod.PUT.equals(method)
                 || HttpMethod.PATCH.equals(method);
-    }
-
-    private Mono<ResponseEntity<Object>> ticketFallback(HttpMethod method,
-                                                         String path,
-                                                         HttpHeaders headers,
-                                                         Mono<String> body,
-                                                         Throwable exception) {
-        ErrorResponse errorResponse = new ErrorResponse("ticket-service-unavailable",
-                "O serviço de tickets está temporariamente indisponível. Tente novamente mais tarde.");
-        return Mono.just(ResponseEntity.status(503).body(errorResponse));
-    }
-
-    private Mono<ResponseEntity<Object>> userFallback(HttpMethod method,
-                                                        String path,
-                                                        HttpHeaders headers,
-                                                        Mono<String> body,
-                                                        Throwable exception) {
-        ErrorResponse errorResponse = new ErrorResponse("user-service-unavailable",
-                "O serviço de usuários está temporariamente indisponível. Tente novamente mais tarde.");
-        return Mono.just(ResponseEntity.status(503).body(errorResponse));
     }
 }

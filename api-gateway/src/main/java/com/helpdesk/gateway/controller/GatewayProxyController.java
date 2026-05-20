@@ -2,7 +2,6 @@ package com.helpdesk.gateway.controller;
 
 import com.helpdesk.gateway.service.ResilientProxyService;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,7 +27,8 @@ public class GatewayProxyController {
             RequestMethod.DELETE,
             RequestMethod.OPTIONS
     })
-    public Mono<ResponseEntity<Object>> forwardToTicketService(ServerHttpRequest request,\n                                                                @RequestBody(required = false) Mono<String> body) {
+    public Mono<ResponseEntity<Object>> forwardToTicketService(ServerHttpRequest request,
+                                                               @RequestBody(required = false) Mono<String> body) {
         String path = extractPath(request.getURI().getRawPath(), "/tickets");
         return proxyService.proxyTicketRequest(request.getMethod(), path, cleanHeaders(request.getHeaders()), body == null ? Mono.empty() : body);
     }
