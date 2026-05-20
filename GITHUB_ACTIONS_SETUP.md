@@ -1,111 +1,134 @@
-# Configurar GitHub Actions com Docker
+# GitHub Actions + Docker - Setup Rápido
 
-Dois workflows foram criados para CI/CD com Docker:
-
-## 1️⃣ **GitHub Container Registry (Recomendado)**
-
-Arquivo: `.github/workflows/docker-build.yml`
-
-**Vantagens:**
-- Integrado nativamente ao GitHub
-- Sem custo de armazenamento
-- Tokens automáticos
-- Privado por padrão
-
-**Setup:**
-1. Nada para configurar! O workflow usa `GITHUB_TOKEN` automaticamente
-2. Faz push para `ghcr.io/seu-usuario/seu-repositorio/service:tag`
-
-**Como usar:**
-```bash
-# Fazer push para main ou develop (automático)
-git push origin main
-
-# Ou criar tag para versão
-git tag v1.0.0
-git push origin v1.0.0
-```
-
----
-
-## 2️⃣ **Docker Hub**
+## 🚀 O que foi criado
 
 Arquivo: `.github/workflows/docker-hub.yml`
 
-**Vantagens:**
-- Popular e bem documentado
-- Integra com Docker Desktop
-- Webhook support
+Workflow automático que:
+- ✅ Bilda as 4 imagens Docker quando você faz push
+- ✅ Faz push para **GitHub Container Registry (GHCR)** automaticamente
+- ✅ Opcionalmente, também faz push para **Docker Hub** (se configurar secrets)
+- ✅ Roda testes em Pull Requests
+- ✅ Cache inteligente para builds mais rápidos
 
-**Setup obrigatório:**
-1. Crie uma conta em [hub.docker.com](https://hub.docker.com)
-2. Gere um Personal Access Token:
-   - Vá em Account Settings → Security → Personal Access Tokens
-   - Crie token com permissões `read:repo_self` e `write:repo_self`
-3. No GitHub, vá em Settings → Secrets and variables → Actions
-   - Crie `DOCKER_HUB_USERNAME` com seu username
-   - Crie `DOCKER_HUB_TOKEN` com o token gerado
+---
 
-**Como usar:**
+## 📋 Setup (Escolha uma opção)
+
+### **Opção 1: Automática (Recomendado para começar)**
+
+Nada para fazer! GitHub Container Registry já funciona automaticamente:
+
 ```bash
-# Fazer push para main (automático)
+git add .
+git commit -m "Add GitHub Actions CI/CD"
 git push origin main
-
-# Ou criar release tagged (para versionar)
-git tag v1.0.0
-git push origin v1.0.0
 ```
 
-Imagens aparecem em: `hub.docker.com/r/seu-username/helpdesk-ticket-service`
+As imagens aparecerão em: `ghcr.io/seu-usuario/helpdesk-system/ticket-service:latest`
 
 ---
 
-## 🔄 **Workflow de PR (Testes)**
+### **Opção 2: Docker Hub (Adicional)**
 
-Ambos os workflows rodam testes em Pull Requests:
-- Buildx cache para build mais rápido
-- Valida que as imagens buildão sem erros
-- Não faz push (apenas em main)
+Se quiser também publicar no Docker Hub:
 
----
+#### Passo 1: Criar token no Docker Hub
+1. Acesse https://hub.docker.com/settings/security
+2. Clique em "New Access Token"
+3. Nome: `github-actions`
+4. Permissões: Read & Write
+5. Copie o token (não será mostrado novamente!)
 
-## 🚀 **Deploy Local com Pull de Imagens**
+#### Passo 2: Configurar secrets no GitHub
+1. Vá ao seu repositório
+2. Settings → Secrets and variables → Actions
+3. "New repository secret"
+4. Crie:
+   - Nome: `DOCKER_HUB_USERNAME`
+   - Valor: seu username do Docker Hub
+5. Crie:
+   - Nome: `DOCKER_HUB_TOKEN`
+   - Valor: o token que você copiou
 
-Depois que as imagens são buildadas no GitHub Actions, você pode rodá-las localmente:
-
+#### Passo 3: Fazer push
 ```bash
-# Usar GHCR (GitHub Container Registry)
-docker pull ghcr.io/seu-usuario/seu-repo/ticket-service:latest
-docker compose up -d
+git push origin main
+```
 
-# Ou usar Docker Hub (se configurado)
-chmod +x deploy-local.sh
-./deploy-local.sh seu-docker-username latest
+Pronto! Agora as imagens também aparecerão em: `docker.io/seu-username/helpdesk-ticket-service:latest`
+
+---
+
+## 📊 Ver os builds
+
+1. Vá ao seu repositório GitHub
+2. Aba "Actions"
+3. Veja o workflow rodando em tempo real
+4. Clique no job para ver logs detalhados
+
+---
+
+## 🐳 Usar as imagens em outro lugar
+
+### Do GitHub Container Registry
+```bash
+docker pull ghcr.io/seu-usuario/helpdesk-system/ticket-service:latest
+```
+
+### Do Docker Hub (se configurado)
+```bash
+docker pull seu-username/helpdesk-ticket-service:latest
 ```
 
 ---
 
-## 📊 **Status dos Builds**
+## 🔄 Deploy local com as imagens buildadas
 
-Ver histórico de builds:
-- GitHub Actions: Abra seu repositório → Actions
-- Logs: Clique no workflow → Clique no job → Ver logs detalhados
+Crie um `docker-compose.remote.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  ticket-service:
+    image: ghcr.io/seu-usuario/helpdesk-system/ticket-service:latest
+    # resto das configs...
+
+  user-service:
+    image: ghcr.io/seu-usuario/helpdesk-system/user-service:latest
+    # resto das configs...
+```
+
+Depois rode:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.remote.yml up
+```
 
 ---
 
-## ⚡ **Melhorias Futuras**
+## ⚠️ Troubleshooting
 
-1. **Scan de vulnerabilidades**
-   ```yaml
-   - name: Run Trivy vulnerability scanner
-     uses: aquasecurity/trivy-action@master
-   ```
+### "Workflow failed" - Logs dizem "failed to authenticate"
+→ Os secrets não estão configurados corretamente. Verifique:
+- Settings → Secrets → Os nomes exatos são `DOCKER_HUB_USERNAME` e `DOCKER_HUB_TOKEN`?
+- O token do Docker Hub ainda é válido?
 
-2. **Push para Render/Vercel** (se usar)
-   - Adicionar deploy stage após build bem-sucedido
+### "Failed to push image"
+→ Provavelmente permissões. No Docker Hub, regera o token com permissões "Read & Write"
 
-3. **Notificações** (Slack, Discord)
-   - Avisar quando build falhar
+### "Build cancelled after 360 minutes"
+→ Muito lento. Isso significa que o build está demorando demais. Considere:
+- Usar menos layers no Dockerfile
+- Usar imagens base menores (alpine)
+- Otimizar a cache
 
-4. **Auto-tag** semântica
-   - Usar commit messages para version bumps
+---
+
+## 📈 Próximas melhorias
+
+1. **Scan de segurança**: Adicione Trivy para detectar vulnerabilidades nas imagens
+2. **Deploy automático**: Integre com Render/Vercel para deploy automático após build bem-sucedido
+3. **Versioning semântico**: Use tags `v1.0.0` para versionar releases
+4. **Notificações**: Configure Slack ou Discord para avisar quando builds falham
+
